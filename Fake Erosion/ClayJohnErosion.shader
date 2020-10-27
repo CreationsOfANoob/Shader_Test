@@ -35,8 +35,11 @@ uniform bool experimental = false;
 uniform float erosion_normal_strength = 1.0;
 uniform float erosion_strength = 0.05;
 
+uniform float scale = 1.0;
+
 vec2 hash( in vec2 x ) 
 {
+	x += seed;
     vec2 k = vec2( 0.3183099, 0.3678794 );
     x = x*k + k.yx;
     return -1.0 + 2.0*fract( 16.0 * k*fract( x.x*x.y*(x.x+x.y)) );
@@ -130,7 +133,7 @@ vec3 mountain(vec2 p, float s) {
     for (int i=0;i<5;i++) {
 		e_n += h.yz * a;
         h+= erosion(p*f, dir+h.zy*vec2(1.0, -1.0))*a*vec3(1.0, f, f);
-        a*=0.4;
+        a*=0.35;
         f*=2.0;
     }
     //remap height to [0,1] and add erosion
@@ -146,19 +149,22 @@ vec3 get_height(vec2 x) {
 }
 
 void vertex() {
-	vec2 sample_pos = VERTEX.xz;
+	vec2 sample_pos = VERTEX.xz * scale;
 	vec3 h = get_height(sample_pos);
-	float height = h.x * height_scale;
+	
+	float real_height_scale = height_scale / scale;
+	float height = h.x * real_height_scale;
 	VERTEX.y += height;
 	COLOR.xyz = vec3(clamp(height, 0.7, 0.0));
+	
 	vec2 e = vec2(0.01, 0.0);
 	vec3 normal;
 	if (experimental) {
 		normal = normalize(vec3(-h.y * e.x * height_scale, 2.0 * e.x, -h.z * e.x * height_scale));
 	} else {
-		normal = normalize(vec3(get_height(sample_pos - e).x * height_scale - get_height(sample_pos + e).x * height_scale, 2.0 * e.x, get_height(sample_pos - e.yx).x * height_scale - get_height(sample_pos + e.yx).x * height_scale));
+		normal = normalize(vec3(get_height(sample_pos - e).x * real_height_scale - get_height(sample_pos + e).x * real_height_scale, 2.0 * e.x, get_height(sample_pos - e.yx).x * real_height_scale - get_height(sample_pos + e.yx).x * real_height_scale));
 	}
-	COLOR = mix(grass_color, mountain_color, clamp(mountain_strength * (height / height_scale - grass_start) + length(normal.xz) * ridge_influence, 1.0, 0.0));
+	COLOR = mix(grass_color, mountain_color, clamp(mountain_strength * (height / real_height_scale - grass_start) + length(normal.xz) * ridge_influence, 1.0, 0.0));
 	NORMAL = normal;
 }
 
