@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=2]
+[gd_scene load_steps=10 format=2]
 
 [ext_resource path="res://ClayJohnErosion.shader" type="Shader" id=1]
 [ext_resource path="res://roads.shader" type="Shader" id=2]
@@ -12,7 +12,7 @@ subdivide_depth = 100
 shader = ExtResource( 1 )
 shader_param/height_scale = 3.84
 shader_param/seed = 1.8
-shader_param/noise_direction = 0.18
+shader_param/noise_direction = 0.16
 shader_param/mountain_color = Color( 0.45098, 0.403922, 0.372549, 1 )
 shader_param/grass_color = Color( 0.321569, 0.65098, 0.211765, 1 )
 shader_param/mountain_strength = 1.196
@@ -43,19 +43,86 @@ shader_param/n_lacunarity = 2.0
 shader_param/grass_color = Color( 0.364706, 0.733333, 0.309804, 1 )
 shader_param/road_color = Color( 0.368627, 0.317647, 0.223529, 1 )
 
+[sub_resource type="Shader" id=5]
+code = "shader_type spatial;
+
+uniform float scale;
+uniform float displacement_fac;
+uniform float e = 0.001;
+
+
+float hash(vec2 p) {
+	return fract(sin(dot(p * 17.17, vec2(14.91, 67.31))) * 4791.9511);
+}
+
+float noise(vec2 x) {
+	vec2 p = floor(x);
+	vec2 f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	vec2 a = vec2(1.0, 0.0);
+	return mix(mix(hash(p + a.yy), hash(p + a.xy), f.x),
+		mix(hash(p + a.yx), hash(p + a.xx), f.x), f.y);
+}
+
+float fbm(vec2 x, int layers, float frequency, float persistence, float lacunarity) {
+	float height = 0.0;
+	float amplitude = 0.5;
+	float max_possible = 0.0;
+	
+	for (int i = 0; i < layers; i++){
+		height += noise(x * frequency) * amplitude;
+		max_possible += amplitude;
+		amplitude *= persistence;
+		frequency *= lacunarity;
+	}
+	return height / (max_possible * 0.9);
+}
+
+float noise2lvl(vec2 x) {
+	return fbm(x, 2, 1.0, 0.5, 2.0);
+}
+
+void fragment() {
+	vec2 pos = UV * scale;
+	float p = noise2lvl(pos);
+	float px = noise2lvl(pos + vec2(1, 0) * e);
+	float py = noise2lvl(pos + vec2(0, 1) * e);
+	vec2 d = vec2((px - p) / e, (py - p) / e);
+	
+	vec2 displaced_pos = pos + d * displacement_fac;
+	
+	vec3 color = vec3(noise(displaced_pos));
+	ALBEDO = color;
+}"
+
+[sub_resource type="ShaderMaterial" id=6]
+shader = SubResource( 5 )
+shader_param/scale = 9.22
+shader_param/displacement_fac = -0.48
+shader_param/e = 0.001
+
+[sub_resource type="PlaneMesh" id=7]
+size = Vector2( 20, 20 )
+
 [node name="Spatial" type="Spatial"]
 
 [node name="MeshInstance" type="MeshInstance" parent="."]
 transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 0 )
+visible = false
 mesh = SubResource( 1 )
 material/0 = SubResource( 2 )
 
 [node name="DirectionalLight" type="DirectionalLight" parent="."]
 transform = Transform( -0.428809, 0.882465, 0.193335, -0.388336, -0.373287, 0.842527, 0.81567, 0.286205, 0.502762, 1.34906, 10.0545, 4.13562 )
 light_color = Color( 1, 0.878431, 0.709804, 1 )
-light_energy = 1.24
 
 [node name="MeshInstance2" type="MeshInstance" parent="."]
 transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, 0 )
 mesh = SubResource( 3 )
 material/0 = SubResource( 4 )
+
+[node name="MeshInstance3" type="MeshInstance" parent="."]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, 20 )
+material_override = SubResource( 6 )
+mesh = SubResource( 7 )
+material/0 = null
