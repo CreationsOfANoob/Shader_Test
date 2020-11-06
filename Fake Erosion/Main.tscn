@@ -47,10 +47,13 @@ shader_param/road_color = Color( 0.368627, 0.317647, 0.223529, 1 )
 code = "shader_type spatial;
 
 uniform float scale;
+uniform float big_scale;
 uniform float displacement_fac;
 uniform float e = 0.001;
-uniform float angle = 0;
+uniform float in_angle = 0;
 uniform float d_pow = 0;
+uniform float squish = 0;
+uniform float angle_step = 10;
 
 float hash(vec2 p) {
 	return fract(sin(dot(p * 17.17, vec2(14.91, 67.31))) * 4791.9511);
@@ -80,22 +83,53 @@ float fbm(vec2 x, int layers, float frequency, float persistence, float lacunari
 }
 
 float noise2lvl(vec2 x) {
-	return fbm(x, 1, 1.0, 0.5, 2.0);
+	return fbm(x, 2, 1.0, 0.5, 2.0);
 }
 
-/*
-void fragment() {
-	vec2 pos = UV * scale;
-	float p = noise2lvl(pos);
+float noise_with_direction(vec2 x, float v) {
+	while (v < -3.141592) {
+		v += 2.0 * 3.141592
+	}
+	while (v > 3.141592) {
+		v -= 2.0 * 3.141592
+	}
+	x += (vec2(hash(vec2(v * 100.0, v * 100.0))) - 0.5) * 100.0;
+	vec2 x_rotated = vec2(x.x * cos(v) - x.y * sin(v), x.y * cos(v) + x.x * sin(v));
+	x_rotated *= vec2(squish, 1.0);
+	float h = noise(x_rotated);
+	return h;
+}
 
-	vec2 dir = vec2(sin(angle), cos(angle));
-	vec2 projected_derivate = dir * (p - 0.5);
-	vec2 displaced_pos = pos + projected_derivate * displacement_fac;
+float atan2(float y, float x) {
+	if (x > 0.0) {
+		return atan(y / x);
+	} else if (x < 0.0 && y >= 0.0) {
+		return atan(y / x) + 3.141592;
+	} else if (x < 0.0 && y < 0.0) {
+		return atan(y / x) - 3.141592;
+	}
+}
+
+void fragment() {
+	vec2 pos = UV * big_scale;
+	float p = noise2lvl(pos);
+	float px = noise2lvl(pos + vec2(1, 0) * e);
+	float py = noise2lvl(pos + vec2(0, 1) * e);
+	vec2 d = vec2((px - p) / e, (py - p) / e);
+
+	pos = UV * scale;
+	float angle = atan2(d.y, d.x);
+	float dir = floor(angle / angle_step) * angle_step;
+	float in_fac = (angle - dir) / angle_step;
+	float ha = noise_with_direction(pos, dir);
+	float hb = noise_with_direction(pos, dir + angle_step);
 	
-	vec3 color = vec3(noise(displaced_pos));
+	float h = ha + (hb - ha) * in_fac;
+	
+	vec3 color = vec3(h);
 	ALBEDO = color;
 }
-*/
+/*
 void fragment() {
 	vec2 pos = UV * scale;
 	float p = noise2lvl(pos);
@@ -110,15 +144,18 @@ void fragment() {
 	vec3 color = vec3(noise(displaced_pos));
 	ALBEDO = color;
 }
-"
+*/"
 
 [sub_resource type="ShaderMaterial" id=6]
 shader = SubResource( 5 )
-shader_param/scale = -7.36
+shader_param/scale = -14.8
+shader_param/big_scale = 2.48
 shader_param/displacement_fac = -0.36
 shader_param/e = 0.001
-shader_param/angle = -659.12
-shader_param/d_pow = 5.36
+shader_param/in_angle = 1.44
+shader_param/d_pow = 5.12
+shader_param/squish = 0.36
+shader_param/angle_step = 0.2
 
 [sub_resource type="PlaneMesh" id=7]
 size = Vector2( 20, 20 )
