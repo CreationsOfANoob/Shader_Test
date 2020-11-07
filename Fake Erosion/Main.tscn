@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=2]
+[gd_scene load_steps=13 format=2]
 
 [ext_resource path="res://ClayJohnErosion.shader" type="Shader" id=1]
 [ext_resource path="res://roads.shader" type="Shader" id=2]
@@ -88,10 +88,10 @@ float noise2lvl(vec2 x) {
 
 float noise_with_direction(vec2 x, float v) {
 	while (v < -3.141592) {
-		v += 2.0 * 3.141592
+		v += 2.0 * 3.141592;
 	}
 	while (v > 3.141592) {
-		v -= 2.0 * 3.141592
+		v -= 2.0 * 3.141592;
 	}
 	x += (vec2(hash(vec2(v * 100.0, v * 100.0))) - 0.5) * 100.0;
 	vec2 x_rotated = vec2(x.x * cos(v) - x.y * sin(v), x.y * cos(v) + x.x * sin(v));
@@ -119,6 +119,7 @@ void fragment() {
 
 	pos = UV * scale;
 	float angle = atan2(d.y, d.x);
+	angle = in_angle;
 	float dir = floor(angle / angle_step) * angle_step;
 	float in_fac = (angle - dir) / angle_step;
 	float ha = noise_with_direction(pos, dir);
@@ -148,22 +149,111 @@ void fragment() {
 
 [sub_resource type="ShaderMaterial" id=6]
 shader = SubResource( 5 )
-shader_param/scale = -14.8
+shader_param/scale = -65.0
 shader_param/big_scale = 2.48
 shader_param/displacement_fac = -0.36
 shader_param/e = 0.001
-shader_param/in_angle = 1.44
+shader_param/in_angle = 8.78
 shader_param/d_pow = 5.12
-shader_param/squish = 0.36
-shader_param/angle_step = 0.2
+shader_param/squish = 0.08
+shader_param/angle_step = 4.36
 
 [sub_resource type="PlaneMesh" id=7]
 size = Vector2( 20, 20 )
 
+[sub_resource type="PlaneMesh" id=8]
+size = Vector2( 20, 20 )
+
+[sub_resource type="Shader" id=9]
+code = "////////////////// K.jpg's Smooth Re-oriented 8-Point BCC Noise //////////////////
+////////////////////// a.k.a. OpenSimplex2, Smooth Version ///////////////////////
+///////////// Modified to produce a Gabor noise like output instead. /////////////
+//////////////////// Output: vec4(dF/dx, dF/dy, dF/dz, value) ////////////////////
+shader_type spatial;
+
+uniform float scale = 1;
+uniform float angle;
+uniform float sinusoidFrequencyScalar = 12.0;
+
+// Borrowed from Stefan Gustavson's noise code
+vec4 permute(vec4 t) {
+    return t * (t * 34.0 + 133.0);
+}
+
+// BCC lattice split up into 2 cube lattices
+vec2 simplexGaborNoisePart(vec3 X, vec3 dir) {
+    vec3 b = floor(X);
+    vec4 i4 = vec4(X - b, 2.5);
+    
+    // Pick between each pair of oppposite corners in the cube.
+    vec3 v1 = b + floor(dot(i4, vec4(.25)));
+    vec3 v2 = b + vec3(1, 0, 0) + vec3(-1, 1, 1) * floor(dot(i4, vec4(-.25, .25, .25, .35)));
+    vec3 v3 = b + vec3(0, 1, 0) + vec3(1, -1, 1) * floor(dot(i4, vec4(.25, -.25, .25, .35)));
+    vec3 v4 = b + vec3(0, 0, 1) + vec3(1, 1, -1) * floor(dot(i4, vec4(.25, .25, -.25, .35)));
+    
+    // Gradient hashes for the four vertices in this half-lattice.
+    vec4 hashes = permute(mod(vec4(v1.x, v2.x, v3.x, v4.x), 289.0));
+    hashes = permute(mod(hashes + vec4(v1.y, v2.y, v3.y, v4.y), 289.0));
+    hashes = mod(permute(mod(hashes + vec4(v1.z, v2.z, v3.z, v4.z), 289.0)), 48.0);
+    vec4 sineOffsets = hashes / 48.0 * 3.14159265 * 4.0;
+    
+    // Gradient extrapolations are replaced with sin(dot(dX, inputVector) + pseudorandomOffset)
+    vec3 d1 = X - v1; vec3 d2 = X - v2; vec3 d3 = X - v3; vec3 d4 = X - v4;
+    vec4 a = max(0.75 - vec4(dot(d1, d1), dot(d2, d2), dot(d3, d3), dot(d4, d4)), 0.0);
+    vec4 aa = a * a; vec4 aaa = aa * a;
+    vec4 extrapolations = vec4(dot(d1, dir), dot(d2, dir), dot(d3, dir), dot(d4, dir)) + sineOffsets;
+    extrapolations = sin(extrapolations);
+    
+    // Return (kernels^3) * sinusoids, and just (kernels^3), so we can average them later
+    return vec2(dot(aaa, extrapolations), dot(aaa, vec4(1.0)));
+}
+
+// Rotates domain, but preserve shape. Hides grid better in cardinal slices.
+// Good for texturing 3D objects with lots of flat parts along cardinal planes.
+float simplexGaborNoise_Classic(vec3 X, vec3 dir) {
+    X = dot(X, vec3(2.0/3.0)) - X;
+    dir = dot(dir, vec3(2.0/3.0)) - dir;
+    
+    vec2 both = simplexGaborNoisePart(X, dir) + simplexGaborNoisePart(X + 144.5, dir);
+    return both.x / both.y;
+}
+
+// Gives X and Y a triangular alignment, and lets Z move up the main diagonal.
+// Might be good for terrain, or a time varying X/Y plane. Z repeats.
+float simplexGaborNoise_XYBeforeZ(vec3 X, vec3 dir) {
+    
+    // Not a skew transform.
+    mat3 orthonormalMap = mat3(
+        vec3(0.788675134594813, -0.211324865405187, -0.577350269189626),
+        vec3(-0.211324865405187, 0.788675134594813, -0.577350269189626),
+        vec3(0.577350269189626, 0.577350269189626, 0.577350269189626));
+    
+    X = orthonormalMap * X;
+    dir = orthonormalMap * dir;
+    vec2 both = simplexGaborNoisePart(X, dir) + simplexGaborNoisePart(X + 144.5, dir);
+    return both.x / both.y;
+}
+
+void fragment() {
+	vec3 pos = vec3(UV * scale, TIME);
+
+	vec3 dir = vec3(sin(angle), cos(angle), 0);
+	float h = simplexGaborNoise_XYBeforeZ(pos, dir * sinusoidFrequencyScalar);
+	
+	vec3 color = vec3((h + 1.0) * 0.5);
+	ALBEDO = color;
+}"
+
+[sub_resource type="ShaderMaterial" id=10]
+shader = SubResource( 9 )
+shader_param/scale = 7.98
+shader_param/angle = -47.812
+shader_param/sinusoidFrequencyScalar = 13.46
+
 [node name="Spatial" type="Spatial"]
 
 [node name="MeshInstance" type="MeshInstance" parent="."]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 0 )
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, -10 )
 visible = false
 mesh = SubResource( 1 )
 material/0 = SubResource( 2 )
@@ -173,12 +263,17 @@ transform = Transform( -0.428809, 0.882465, 0.193335, -0.388336, -0.373287, 0.84
 light_color = Color( 1, 0.878431, 0.709804, 1 )
 
 [node name="MeshInstance2" type="MeshInstance" parent="."]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, 0 )
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, -10 )
 mesh = SubResource( 3 )
 material/0 = SubResource( 4 )
 
 [node name="MeshInstance3" type="MeshInstance" parent="."]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, 20 )
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, 10 )
 material_override = SubResource( 6 )
 mesh = SubResource( 7 )
 material/0 = null
+
+[node name="MeshInstance5" type="MeshInstance" parent="."]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 10 )
+mesh = SubResource( 8 )
+material/0 = SubResource( 10 )
